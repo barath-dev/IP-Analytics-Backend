@@ -30,7 +30,11 @@ app.post('/', async (req:Request, res:Response) => {
     try {
 
         //fetch the ip details
-        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+        let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+        if (ip && ip.length>1) {
+            ip = ip[0];
+        }
 
         console.log(ip);
 
