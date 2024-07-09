@@ -33,7 +33,7 @@ app.post('/', async (req:Request, res:Response) => {
         let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
         if (ip && ip.length>1) {
-            ip = ip[0];
+            ip = (ip as string).split(',')[0];
         }
 
         console.log(ip);
