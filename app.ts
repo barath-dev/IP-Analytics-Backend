@@ -8,16 +8,16 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const server = https.createServer(app);
+const  cert = require('fs').readFileSync("rootCA.crt");
+const key = require('fs').readFileSync("rootCA.key");
 const port = 4000;
 const DBURL = "http://127.0.0.1:8090/api/";
 const POCKETBASE_TOKEN = "0xsnb9i4dfh44jo"
 
-const  cert = require('fs').readFileSync("rootCA.crt");
-const key = require('fs').readFileSync("rootCA.key");
 
-console.log(cert);
-console.log(key);
+//create a https server using key and cert 
+const server = https.createServer({key: key, cert: cert }, app);
+
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -150,7 +150,8 @@ app.get("/stats",(req:Request,res:Response)=>{
     });
 });
 
-server.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-});
+//create a https server by using the cert and key
 
+server.listen(port, () => {
+    console.log(`Server is running on https://localhost:${port}`);
+});

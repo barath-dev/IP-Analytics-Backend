@@ -12,4 +12,4 @@ COPY package.json ./
 RUN npm install --legacy-peer-deps
 COPY --from=build /app/build ./build
 COPY . .
-CMD ["node", "build/app.js"]
+CMD ["node", "build/app.js"]    
