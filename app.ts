@@ -26,7 +26,34 @@ app.post('/', async (req:Request, res:Response) => {
 
     try {
         fetchIPDetails().then(async (data): Promise<void> => {
-    
+
+            //check for the record in the database if it exists then increment the visit count else create a new record
+            const response = await fetch(`${DBURL}collections/IP_Details/records?ip=${data.ip}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
+                },
+            });
+            const records = await response.json();
+
+            if (records.items.length > 0) {
+                const record = records.items[0];
+                record.visit_count += 1;
+                //update the record in the database
+                await fetch(`${DBURL}collections/IP_Details/records/${record.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
+                    },
+                    body: JSON.stringify(record),
+                }).then((response) => {
+                    console.log(response);
+                }).catch((error) => {
+                    console.error(error);
+                });
+            }else{
             let record = new RecordModel(
                 randomUUID().toString().substring(0, 15),
                 data.ip,
@@ -41,6 +68,7 @@ app.post('/', async (req:Request, res:Response) => {
                 req.body.os,
                 req.body.browser,
                 req.body.device,
+                1,
                 Date.now() as unknown as string,
                 Date.now() as unknown as string
             );
@@ -56,6 +84,7 @@ app.post('/', async (req:Request, res:Response) => {
             }).catch((error) => {
                 console.error(error);
             });
+        }
         }); 
         res.status(200).send("Record saved successfully");
     } catch (error) {
@@ -92,14 +121,14 @@ app.get("/records", async (req:Request,res:Response)=>{
 
     const data = await response.json();
     console.log(data);
-    res.send(data);
+    res.status(200).send(data.items);
 });
 
 app.get("/stats",(req:Request,res:Response)=>{
 
     console.log("Getting stats");
     //get all the records from the database
-    const response = fetch(`${DBURL}collections/IP_Details/records`,
+   fetch(`${DBURL}collections/IP_Details/records`,
     {
         method: "GET",
         headers: {
@@ -107,7 +136,8 @@ app.get("/stats",(req:Request,res:Response)=>{
             "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
         }, 
       }).then(async (response) => {
-        const data = await response.json();
+        let data = await response.json();
+        data = data.items;
         const countryStats = data.reduce((acc: any, item: any) => {
             acc[item.country] = acc[item.country] ? acc[item.country] + item.visit_count : 1;
             return acc;
@@ -142,16 +172,15 @@ app.get("/stats",(req:Request,res:Response)=>{
                 totalDevices: Object.keys(deviceStats).length,
             };
 
-        res.send({countryStats,orgStats,browserStats,osStats,deviceStats,overallStats});
-        
-          res.send({countryStats,orgStats});
+        res.status(200).send({countryStats,orgStats,browserStats,osStats,deviceStats,overallStats});
     }).catch((error) => {
         console.error(error);
+        res.status(500).send("Error getting stats");
     });
 });
 
 //create a https server by using the cert and key
 
-server.listen(port, () => {
+server.listen(process.env.PORT || port, () => {
     console.log(`Server is running on https://localhost:${port}`);
 });
