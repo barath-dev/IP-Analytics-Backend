@@ -13,6 +13,7 @@ export class RecordModel {
         public os?: string,
         public browser?: string,
         public device?: string,
+        public visit_count?: number,
         public created_at?: string,
         public updated_at?: string
     ) {
@@ -30,6 +31,7 @@ export class RecordModel {
         this.browser = browser;
         this.device = device;
         this.created_at = created_at;
+        this.updated_at = updated_at;
         this.updated_at = updated_at;
     }
 
@@ -49,6 +51,7 @@ export class RecordModel {
             json.browser,
             json.device,
             json.created_at,
+            json.visit_count,
             json.updated_at
         );
     }
@@ -69,6 +72,7 @@ export class RecordModel {
             browser: this.browser,
             device: this.device,
             created_at: this.created_at,
+            visit_count: this.visit_count,
             updated_at: this.updated_at
         };
     }
