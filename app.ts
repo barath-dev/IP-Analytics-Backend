@@ -10,9 +10,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const  cert = require('fs').readFileSync("rootCA.crt");
 const key = require('fs').readFileSync("rootCA.key");
-const port = 4000;
-const DBURL = "http://127.0.0.1:8090/api/";
-const POCKETBASE_TOKEN = "0xsnb9i4dfh44jo"
+
 
 
 //create a https server using key and cert 
@@ -27,25 +25,33 @@ app.post('/', async (req:Request, res:Response) => {
     try {
         fetchIPDetails().then(async (data): Promise<void> => {
 
-            //check for the record in the database if it exists then increment the visit count else create a new record
-            const response = await fetch(`${DBURL}collections/IP_Details/records?ip=${data.ip}`, {
+            const response = await fetch(`${process.env.DBURL}collections/IP_Details/records?ip=${data.ip}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
-                    "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
+                    "Authorization": `Bearer ${process.env.POCKETBASE_TOKEN}`,
                 },
             });
             const records = await response.json();
 
-            if (records.items.length > 0) {
+            let present = false;
+
+            for (const  record of records.items) {
+                if(record.ip === data.ip){
+                    present = true;
+                    break;
+                }
+            }
+
+            if (present) {
                 const record = records.items[0];
                 record.visit_count += 1;
                 //update the record in the database
-                await fetch(`${DBURL}collections/IP_Details/records/${record.id}`, {
+                await fetch(`${process.env.DBURL}collections/IP_Details/records/${record.id}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
+                        "Authorization": `Bearer ${process.env.POCKETBASE_TOKEN}`,
                     },
                     body: JSON.stringify(record),
                 }).then((response) => {
@@ -53,6 +59,7 @@ app.post('/', async (req:Request, res:Response) => {
                 }).catch((error) => {
                     console.error(error);
                 });
+
             }else{
             let record = new RecordModel(
                 randomUUID().toString().substring(0, 15),
@@ -73,11 +80,11 @@ app.post('/', async (req:Request, res:Response) => {
                 Date.now() as unknown as string
             );
             //save the record to the database
-           const res = await fetch(`${DBURL}collections/IP_Details/records`, {
+           const res = await fetch(`${process.env.DBURL}collections/IP_Details/records`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
+                    "Authorization": `Bearer ${process.env.POCKETBASE_TOKEN}`,
                 },
                 body: JSON.stringify(record),}).then((response) => {
                 console.log(response);
@@ -109,13 +116,13 @@ async function fetchIPDetails(){
 app.get("/records", async (req:Request,res:Response)=>{
 
     console.log("Getting records");
-    //get all the records from the database
-    const response = await fetch(`${DBURL}collections/IP_Details/records`,
+
+    const response = await fetch(`${process.env.DBURL}collections/IP_Details/records`,
     {
         method: "GET",
         headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
+            "Authorization": `Bearer ${process.env.POCKETBASE_TOKEN}`,
         }, 
       });
 
@@ -128,12 +135,12 @@ app.get("/stats",(req:Request,res:Response)=>{
 
     console.log("Getting stats");
     //get all the records from the database
-   fetch(`${DBURL}collections/IP_Details/records`,
+   fetch(`${process.env.DBURL}collections/IP_Details/records`,
     {
         method: "GET",
         headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${POCKETBASE_TOKEN}`,
+            "Authorization": `Bearer ${process.env.POCKETBASE_TOKEN}`,
         }, 
       }).then(async (response) => {
         let data = await response.json();
@@ -181,6 +188,6 @@ app.get("/stats",(req:Request,res:Response)=>{
 
 //create a https server by using the cert and key
 
-server.listen(process.env.PORT || port, () => {
-    console.log(`Server is running on https://localhost:${port}`);
+server.listen(process.env.PORT || 4000,"0.0.0.0" ,() => {
+    console.log(`Server is running on https://localhost:${process.env.PORT || 4000}`);
 });
