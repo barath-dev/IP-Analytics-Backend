@@ -28,7 +28,21 @@ app.post('/', async (req:Request, res:Response) => {
     console.log("Saving record");
 
     try {
-        fetchIPDetails().then(async (data): Promise<void> => {
+
+        //fetch the ip details
+        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+        console.log(ip);
+
+        let data = null;
+
+
+        if (ip) {
+             data = fetchIPDetails(ip.toString()).then(async (data): Promise<void> => {});
+        } else {
+            res.status(400).send("IP not found");
+            return;
+        }
 
             const response = await fetch(`${process.env.DBURL}collections/IP_Details/records`, {
                 method: 'GET',
@@ -43,7 +57,8 @@ app.post('/', async (req:Request, res:Response) => {
             let rec = null;
 
             for (const  record of records.items) {
-                if(record.ip === data.ip){
+                const ipDetails = await fetchIPDetails(ip.toString());
+                if (record.ip === ipDetails.ip) {
                     present = true;
                     rec = record;
                 }
@@ -69,17 +84,19 @@ app.post('/', async (req:Request, res:Response) => {
 
             }else{
                 console.log("Record not found");
+
+                const ipde = await fetchIPDetails(ip.toString());
             let record = new RecordModel(
                 randomUUID().toString().substring(0, 15),
-                data.ip,
-                data.city,
-                data.region,
-                data.country,
-                data.postal,
-                data.latitude,
-                data.longitude,
-                data.timezone,
-                data.org,
+                ipde.ip,
+                ipde.city,
+                ipde.region,
+                ipde.country,
+                ipde.postal,
+                ipde.latitude,
+                ipde.longitude,
+                ipde.timezone,
+                ipde.org,
                 req.body.os,
                 req.body.browser,
                 req.body.device,
@@ -100,7 +117,6 @@ app.post('/', async (req:Request, res:Response) => {
                 console.error(error);
             });
         }
-        }); 
         res.status(200).send("Record saved successfully");
     } catch (error) {
         console.error(error);
@@ -109,11 +125,9 @@ app.post('/', async (req:Request, res:Response) => {
 });
 
 
-async function fetchIPDetails(){
+async function fetchIPDetails(ip:string){
     try{
-        const res = await fetch('https://api.ipify.org?format=json', { cache: "no-store" });
-        const data = await res.json();
-        const response = await axios.get(`https://ipapi.co/${data.ip}/json/`);
+        const response = await axios.get(`https://ipapi.co/${ip}/json/`);
         console.log(response.data);
         return response.data;
     }catch(error){
