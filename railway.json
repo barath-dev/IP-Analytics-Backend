@@ -1,0 +1,15 @@
+{
+    "$schema": "https://railway.app/railway.schema.json",
+    "build": {
+      "builder": "NIXPACKS",
+      "buildCommand": "npx tsc"
+    },
+    "deploy": {
+      "runtime": "V2",
+      "numReplicas": 1,
+      "startCommand": "node build/app.js",
+      "sleepApplication": false,
+      "restartPolicyType": "ON_FAILURE",
+      "restartPolicyMaxRetries": 10
+    }
+  }
