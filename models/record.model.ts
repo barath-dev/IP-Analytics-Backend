@@ -13,6 +13,8 @@ export class RecordModel {
         public os?: string,
         public browser?: string,
         public device?: string,
+        public referrer?: string,
+        public pathname?: string,
         public visit_count?: number,
         public created_at?: string,
         public updated_at?: string
@@ -30,8 +32,10 @@ export class RecordModel {
         this.os = os;
         this.browser = browser;
         this.device = device;
+        this.referrer = referrer;
+        this.pathname = pathname;
+        this.visit_count = visit_count;
         this.created_at = created_at;
-        this.updated_at = updated_at;
         this.updated_at = updated_at;
     }
 
@@ -50,8 +54,10 @@ export class RecordModel {
             json.os,
             json.browser,
             json.device,
-            json.created_at,
+            json.referrer,
+            json.pathname,
             json.visit_count,
+            json.created_at,
             json.updated_at
         );
     }
@@ -71,8 +77,10 @@ export class RecordModel {
             os: this.os,
             browser: this.browser,
             device: this.device,
-            created_at: this.created_at,
+            referrer: this.referrer,
+            pathname: this.pathname,
             visit_count: this.visit_count,
+            created_at: this.created_at,
             updated_at: this.updated_at
         };
     }

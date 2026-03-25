@@ -3,14 +3,16 @@ import axios from "axios";
 import { RecordModel } from "./models/record.model";
 import { randomUUID } from "crypto";
 
-const https = require('http');
-const express = require('express');
+import * as https from 'http';
+import express from 'express';
+import cors from 'cors';
+import * as bodyParser from 'body-parser';
+import * as fs from 'fs';
+import * as dotenv from 'dotenv';
+
 const app = express();
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const  cert = require('fs').readFileSync("rootCA.crt");
-const key = require('fs').readFileSync("rootCA.key");
-const dotenv = require('dotenv');
+const cert = fs.readFileSync("rootCA.crt");
+const key = fs.readFileSync("rootCA.key");
 
 
 
@@ -104,6 +106,8 @@ app.post('/', async (req:Request, res:Response) => {
                 req.body.os,
                 req.body.browser,
                 req.body.device,
+                req.body.referrer,
+                req.body.pathname,
                 1,
                 Date.now() as unknown as string,
                 Date.now() as unknown as string
@@ -208,6 +212,18 @@ app.get("/stats",(req:Request,res:Response)=>{
             return acc;
           }, {});
 
+          const referrerStats = data?.reduce((acc: any, item: any) => {
+            const ref = item.referrer || "Direct";
+            acc[ref] = acc[ref] ? acc[ref] + 1 : 1;
+            return acc;
+          }, {});
+
+          const pageStats = data?.reduce((acc: any, item: any) => {
+            const path = item.pathname || "/";
+            acc[path] = acc[path] ? acc[path] + 1 : 1;
+            return acc;
+          }, {});
+
             const overallStats = {
                 totalRecords: data?.length,
                 totalCountries: Object.keys(countryStats).length,
@@ -215,9 +231,11 @@ app.get("/stats",(req:Request,res:Response)=>{
                 totalBrowsers: Object.keys(browserStats).length,
                 totalOS: Object.keys(osStats).length,
                 totalDevices: Object.keys(deviceStats).length,
+                totalReferrers: Object.keys(referrerStats).length,
+                totalPages: Object.keys(pageStats).length,
             };
 
-        res.status(200).send({countryStats,orgStats,browserStats,osStats,deviceStats,overallStats});
+        res.status(200).send({countryStats,orgStats,browserStats,osStats,deviceStats,referrerStats,pageStats,overallStats});
     }).catch((error) => {
         console.error(error);
         res.status(500).send("Error getting stats");
@@ -226,8 +244,10 @@ app.get("/stats",(req:Request,res:Response)=>{
 
 //create a https server by using the cert and key
 
-server.listen(process.env.PORT || 4000,"0.0.0.0" ,() => {
-    console.log(`Server is running on https://localhost:${process.env.PORT || 4000}`);
+const PORT = parseInt(process.env.PORT || '4000', 10);
+
+server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server is running on https://localhost:${PORT}`);
 });
 
 // Dummy Cron Job: Ping self every 1 minute to keep active
