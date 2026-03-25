@@ -1,6 +1,7 @@
 export class RecordModel {
     constructor(
         public id?: string,
+        public site_id?: string,
         public ip?: string,
         public city?: string,
         public region?: string,
@@ -20,6 +21,7 @@ export class RecordModel {
         public updated_at?: string
     ) {
         this.id = id;
+        this.site_id = site_id;
         this.ip = ip;
         this.city = city;
         this.region = region;
@@ -42,6 +44,7 @@ export class RecordModel {
     static fromJson(json: any): RecordModel {
         return new RecordModel(
             json.id,
+            json.site_id,
             json.ip,
             json.city,
             json.region,
@@ -65,6 +68,7 @@ export class RecordModel {
     toJson(): any {
         return {
             id: this.id,
+            site_id: this.site_id,
             ip: this.ip,
             city: this.city,
             region: this.region,
