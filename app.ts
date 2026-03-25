@@ -229,3 +229,17 @@ app.get("/stats",(req:Request,res:Response)=>{
 server.listen(process.env.PORT || 4000,"0.0.0.0" ,() => {
     console.log(`Server is running on https://localhost:${process.env.PORT || 4000}`);
 });
+
+// Dummy Cron Job: Ping self every 1 minute to keep active
+const PING_INTERVAL = 60000; // 1 minute
+const SELF_URL = process.env.SELF_URL || `https://ip-analytics-backend.onrender.com`;
+
+setInterval(async () => {
+    try {
+        console.log(`[Cron] Keeping server alive: Pinging ${SELF_URL}`);
+        await axios.get(SELF_URL);
+    } catch (error) {
+        console.error(`[Cron] Ping failed: ${error}`);
+    }
+}, PING_INTERVAL);
+
