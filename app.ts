@@ -85,8 +85,10 @@ async function getUserSites(userId: string): Promise<string[]> {
             }
         );
         const data = await response.json();
-        return (data.items ?? []).map((p: any) => p.site_id);
-    } catch {
+        const sites = (data.items ?? []).map((p: any) => p.site_id);
+        console.log(`[getUserSites] User ID: ${userId}, Allowed:`, sites);
+        return sites;
+    } catch (err) {
         return [];
     }
 }
