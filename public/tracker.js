@@ -63,7 +63,8 @@
         // Use sendBeacon if available (non-blocking), fallback to fetch
         const endpoint = `${apiBase}/v1/track`;
         if (navigator.sendBeacon) {
-            navigator.sendBeacon(endpoint, JSON.stringify(payload));
+            const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+            navigator.sendBeacon(endpoint, blob);
         } else {
             fetch(endpoint, {
                 method: 'POST',
