@@ -206,7 +206,8 @@ app.post('/v1/track', async (req: Request, res: Response) => {
 
         if (record) {
             // Returning visitor — bump the visit count
-            await fetch(
+            console.log(`[Database] Sending PATCH record to: ${DBURL}collections/IP_Details/records/${record.id}`);
+            const updateRes = await fetch(
                 `${DBURL}collections/IP_Details/records/${record.id}`,
                 {
                     method: 'PATCH',
@@ -217,6 +218,9 @@ app.post('/v1/track', async (req: Request, res: Response) => {
                     body: JSON.stringify({ visit_count: (record.visit_count || 1) + 1 }),
                 }
             );
+            if (!updateRes.ok) {
+                console.error('[Database PATCH Error]', await updateRes.text());
+            }
         } else {
             // New visitor — create the record
             const data = {
@@ -238,7 +242,9 @@ app.post('/v1/track', async (req: Request, res: Response) => {
                 visit_count: 1
             };
 
-            await fetch(`${DBURL}collections/IP_Details/records`, {
+            const targetUrl = `${DBURL}collections/IP_Details/records`;
+            console.log(`[Database] Sending POST record to: ${targetUrl}`);
+            const createRes = await fetch(targetUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -246,6 +252,9 @@ app.post('/v1/track', async (req: Request, res: Response) => {
                 },
                 body: JSON.stringify(data),
             });
+            if (!createRes.ok) {
+                console.error('[Database POST Error]', await createRes.text());
+            }
         }
 
         res.status(200).json({ success: true });
