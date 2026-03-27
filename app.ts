@@ -19,7 +19,7 @@ app.use(cors({ origin: '*' }));
 app.use(bodyParser.json());
 
 // Serve the tracker script publicly
-app.use('/static', express.static(path.join(__dirname, 'public')));
+app.use('/static', express.static(path.join(process.cwd(), 'public')));
 
 // ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
 const DBURL = process.env.DBURL || 'http://127.0.0.1:8090/api/';
