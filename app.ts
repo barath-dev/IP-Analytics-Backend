@@ -15,7 +15,7 @@ const server = http.createServer(app);
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 // Allow all origins for tracking requests; dashboard endpoints are public reads.
-app.use(cors({ origin: '*' }));
+app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json());
 
 // Serve the tracker script publicly
