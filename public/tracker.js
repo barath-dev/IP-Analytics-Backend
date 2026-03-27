@@ -1,5 +1,5 @@
 /**
- * IP-Analytics Tracker v2.0
+ * IP-Analytics Tracker v2.1 (Production-Ready)
  * Drop-in script to track page views.
  *
  * Usage:
