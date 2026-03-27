@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import axios from "axios";
-import { RecordModel } from "./models/record.model";
 import { randomUUID } from "crypto";
 import * as http from 'http';
 import express from 'express';
@@ -22,6 +21,40 @@ app.use(bodyParser.json());
 // Serve the tracker script publicly
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
+// ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
+const DBURL = process.env.DBURL || 'http://127.0.0.1:8090/api/';
+
+/**
+ * Validates the PocketBase JWT from the Authorization header.
+ * Attaches the decoded user info to req.user.
+ */
+async function requireAuth(req: Request, res: Response, next: any) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    try {
+        // PocketBase doesn't have a public "verify token" endpoint without the admin SDK,
+        // so we verify by trying to fetch the user profile using this token.
+        const verifyRes = await fetch(`${DBURL}collections/users/auth-refresh`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!verifyRes.ok) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid session' });
+        }
+
+        const data = await verifyRes.json();
+        (req as any).user = data.record; // Attach user record (id, email, etc.)
+        next();
+    } catch (err) {
+        return res.status(401).json({ error: 'Unauthorized: Auth service unavailable' });
+    }
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 async function fetchIPDetails(ip: string): Promise<any> {
     try {
@@ -39,10 +72,38 @@ function getClientIP(req: Request): string | null {
     return (ip as string).split(',')[0].trim();
 }
 
-async function getAllRecords(siteId?: string): Promise<any[]> {
-    const filter = siteId ? `?filter=(site_id='${siteId}')` : '';
+async function getUserSites(userId: string): Promise<string[]> {
+    try {
+        // We'll store site ownership in a 'Projects' collection: { user_id, site_id }
+        const response = await fetch(
+            `${DBURL}collections/Projects/records?filter=(user_id='${userId}')`,
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
+                },
+            }
+        );
+        const data = await response.json();
+        return (data.items ?? []).map((p: any) => p.site_id);
+    } catch {
+        return [];
+    }
+}
+
+async function getAllRecords(siteId?: string, allowedSites?: string[]): Promise<any[]> {
+    let filterParts = [];
+    if (siteId) filterParts.push(`site_id='${siteId}'`);
+    if (allowedSites) {
+        // Only allow records belonging to the user's sites
+        const siteFilter = allowedSites.map(s => `site_id='${s}'`).join('||');
+        if (siteFilter) filterParts.push(`(${siteFilter})`);
+        else return []; // User has no sites
+    }
+
+    const filterQuery = filterParts.length > 0 ? `?filter=(${filterParts.join('&&')})` : '';
     const response = await fetch(
-        `${process.env.DBURL}collections/IP_Details/records${filter}`,
+        `${DBURL}collections/IP_Details/records${filterQuery}`,
         {
             headers: {
                 'Content-Type': 'application/json',
@@ -138,47 +199,44 @@ app.post('/v1/track', async (req: Request, res: Response) => {
         if (record) {
             // Returning visitor — bump the visit count
             await fetch(
-                `${process.env.DBURL}collections/IP_Details/records/${record.id}`,
+                `${DBURL}collections/IP_Details/records/${record.id}`,
                 {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
                     },
-                    body: JSON.stringify({ visit_count: record.visit_count + 1 }),
+                    body: JSON.stringify({ visit_count: (record.visit_count || 1) + 1 }),
                 }
             );
         } else {
             // New visitor — create the record
-            const newRecord = new RecordModel(
-                randomUUID().toString().substring(0, 15),
+            const data = {
                 site_id,
-                ipDetails.ip,
-                ipDetails.city,
-                ipDetails.region,
-                ipDetails.country,
-                ipDetails.postal,
-                ipDetails.latitude,
-                ipDetails.longitude,
-                ipDetails.timezone,
-                ipDetails.org,
+                ip: ipDetails.ip,
+                city: ipDetails.city,
+                region: ipDetails.region,
+                country: ipDetails.country,
+                postal: ipDetails.postal,
+                latitude: ipDetails.latitude,
+                longitude: ipDetails.longitude,
+                timezone: ipDetails.timezone,
+                org: ipDetails.org,
                 os,
                 browser,
                 device,
                 referrer,
                 pathname,
-                1,
-                Date.now() as unknown as string,
-                Date.now() as unknown as string
-            );
+                visit_count: 1
+            };
 
-            await fetch(`${process.env.DBURL}collections/IP_Details/records`, {
+            await fetch(`${DBURL}collections/IP_Details/records`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
                 },
-                body: JSON.stringify(newRecord),
+                body: JSON.stringify(data),
             });
         }
 
@@ -188,16 +246,86 @@ app.post('/v1/track', async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-
-// ─── v1 RECORDS ENDPOINT ──────────────────────────────────────────────────────
+// ─── AUTH ENDPOINTS (PROXIES) ────────────────────────────────────────────────
 /**
- * GET /v1/records?siteId=XXX
- * Returns raw records, optionally filtered by site.
+ * POST /v1/auth/signup
+ * Body: { email, password, passwordConfirm }
  */
-app.get('/v1/records', async (req: Request, res: Response) => {
+app.post('/v1/auth/signup', async (req: Request, res: Response) => {
     try {
+        const response = await fetch(`${DBURL}collections/users/records`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req.body)
+        });
+        const data = await response.json();
+        if (!response.ok) return res.status(response.status).json(data);
+        res.status(201).json(data);
+    } catch (err) {
+        res.status(500).json({ error: 'Auth service down' });
+    }
+});
+
+/**
+ * POST /v1/auth/login
+ * Body: { identity, password }
+ */
+app.post('/v1/auth/login', async (req: Request, res: Response) => {
+    try {
+        const response = await fetch(`${DBURL}collections/users/auth-with-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req.body)
+        });
+        const data = await response.json();
+        if (!response.ok) return res.status(response.status).json(data);
+
+        // data contains { token, record }
+        res.status(200).json(data);
+    } catch (err) {
+        res.status(500).json({ error: 'Auth service down' });
+    }
+});
+
+/**
+ * POST /v1/projects
+ * Body: { site_id }
+ * Registers a new site/project for the authenticated user.
+ */
+app.post('/v1/projects', requireAuth, async (req: Request, res: Response) => {
+    try {
+        const { site_id } = req.body;
+        const user = (req as any).user;
+
+        if (!site_id) return res.status(400).json({ error: 'site_id required' });
+
+        const response = await fetch(`${DBURL}collections/Projects/records`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`
+            },
+            body: JSON.stringify({ user_id: user.id, site_id })
+        });
+
+        const data = await response.json();
+        if (!response.ok) return res.status(response.status).json(data);
+        res.status(201).json(data);
+    } catch (err) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ─── v1 RECORDS ENDPOINT (PROTECTED) ─────────────────────────────────────────
+app.get('/v1/records', requireAuth, async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
         const siteId = req.query.siteId as string | undefined;
-        const records = await getAllRecords(siteId);
+
+        // Get allowed sites for this user
+        const allowedSites = await getUserSites(user.id);
+        const records = await getAllRecords(siteId, allowedSites);
+
         res.status(200).json(records);
     } catch (error) {
         console.error('[Records Error]', error);
@@ -205,15 +333,14 @@ app.get('/v1/records', async (req: Request, res: Response) => {
     }
 });
 
-// ─── v1 STATS ENDPOINT ────────────────────────────────────────────────────────
-/**
- * GET /v1/stats?siteId=XXX
- * Returns aggregated analytics stats, optionally filtered by site.
- */
-app.get('/v1/stats', async (req: Request, res: Response) => {
+// ─── v1 STATS ENDPOINT (PROTECTED) ───────────────────────────────────────────
+app.get('/v1/stats', requireAuth, async (req: Request, res: Response) => {
     try {
+        const user = (req as any).user;
         const siteId = req.query.siteId as string | undefined;
-        const data = await getAllRecords(siteId);
+
+        const allowedSites = await getUserSites(user.id);
+        const data = await getAllRecords(siteId, allowedSites);
 
         if (data.length === 0) {
             res.status(200).json({ message: 'No records found', ...buildStats([]) });
