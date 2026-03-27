@@ -309,7 +309,10 @@ app.post('/v1/projects', requireAuth, async (req: Request, res: Response) => {
         });
 
         const data = await response.json();
-        if (!response.ok) return res.status(response.status).json(data);
+        if (!response.ok) {
+            console.error('[PocketBase Error]', JSON.stringify(data, null, 2));
+            return res.status(response.status).json(data);
+        }
         res.status(201).json(data);
     } catch (err) {
         res.status(500).json({ error: 'Internal server error' });
