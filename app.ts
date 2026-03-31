@@ -7,6 +7,7 @@ import cors from 'cors';
 import * as bodyParser from 'body-parser';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import PocketBase from 'pocketbase';
 
 dotenv.config();
 
@@ -28,7 +29,42 @@ app.use(bodyParser.json());
 app.use('/static', express.static(path.join(process.cwd(), 'public')));
 
 // ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
-const DBURL = process.env.DBURL || 'http://127.0.0.1:8090/api/';
+// ─── POCKETBASE CLIENT ───────────────────────────────────────────────────────
+const rawDbUrl = process.env.DBURL || 'http://127.0.0.1:8090';
+const DBURL = rawDbUrl.endsWith('/api/') ? rawDbUrl : `${rawDbUrl.replace(/\/$/, '')}/api/`;
+const BASE_URL = rawDbUrl.replace(/\/api\/$/, '');
+
+const pb = new PocketBase(BASE_URL);
+
+// Programmatically login as admin so we don't need a hardcoded JWT
+export async function initAdminAuth() {
+    if (process.env.PB_ADMIN_EMAIL && process.env.PB_ADMIN_PASSWORD) {
+        try {
+            // PocketBase SDK >= 0.23 maps pb.admins to _superusers.
+            // If the server is <= 0.22, this fails. We can use a direct axios call for older versions.
+            try {
+                await pb.collection('_superusers').authWithPassword(process.env.PB_ADMIN_EMAIL, process.env.PB_ADMIN_PASSWORD);
+            } catch (e: any) {
+                if (e.status === 404) {
+                    // Fall back to legacy admin auth for PocketBase <= 0.22 servers
+                    const res = await axios.post(`${BASE_URL}/api/admins/auth-with-password`, {
+                        identity: process.env.PB_ADMIN_EMAIL,
+                        password: process.env.PB_ADMIN_PASSWORD
+                    });
+                    pb.authStore.save(res.data.token, res.data.admin);
+                } else {
+                    throw e;
+                }
+            }
+            console.log('[Auth] Successfully authenticated PocketBase admin client');
+        } catch (error) {
+            console.error('[Auth] Failed to authenticate admin client:', error);
+        }
+    } else if (process.env.POCKETBASE_TOKEN) {
+        pb.authStore.save(process.env.POCKETBASE_TOKEN, null);
+    }
+}
+initAdminAuth();
 
 /**
  * Validates the PocketBase JWT from the Authorization header.
@@ -42,30 +78,44 @@ async function requireAuth(req: Request, res: Response, next: any) {
 
     const token = authHeader.split(' ')[1];
     try {
-        // PocketBase doesn't have a public "verify token" endpoint without the admin SDK,
-        // so we verify by trying to fetch the user profile using this token.
-        const verifyRes = await fetch(`${DBURL}collections/users/auth-refresh`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        // Create a temporary client to verify the user token without affecting the main client
+        const authClient = new PocketBase(BASE_URL);
+        authClient.authStore.save(token, null);
 
-        if (!verifyRes.ok) {
+        if (!authClient.authStore.isValid) {
             return res.status(401).json({ error: 'Unauthorized: Invalid session' });
         }
 
-        const data = await verifyRes.json();
-        (req as any).user = data.record; // Attach user record (id, email, etc.)
+        // Verify and refresh the token to confirm it's still active in the DB
+        const authData = await authClient.collection('users').authRefresh();
+        
+        (req as any).user = authData.record;
         next();
     } catch (err) {
-        return res.status(401).json({ error: 'Unauthorized: Auth service unavailable' });
+        console.error('[Auth Error]', err);
+        return res.status(401).json({ error: 'Unauthorized: Invalid or expired session' });
     }
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
 async function fetchIPDetails(ip: string): Promise<any> {
     try {
-        const response = await axios.get(`https://ipapi.co/${ip}/json/`);
-        return response.data;
+        const response = await axios.get(`http://ip-api.com/json/${ip}?fields=status,message,country,regionName,city,zip,lat,lon,timezone,org,query`);
+        const data = response.data;
+        if (data.status !== 'success') {
+            console.error('[IP Lookup Failed]', data.message);
+            return null;
+        }
+        return {
+            ip: data.query,
+            city: data.city,
+            region: data.regionName,
+            country: data.country,
+            postal: data.zip,
+            latitude: data.lat,
+            longitude: data.lon,
+            timezone: data.timezone,
+            org: data.org
+        };
     } catch (error) {
         console.error('[IP Lookup Error]', error);
         return null;
@@ -80,47 +130,39 @@ function getClientIP(req: Request): string | null {
 
 async function getUserSites(userId: string): Promise<string[]> {
     try {
-        // We'll store site ownership in a 'Projects' collection: { user_id, site_id }
-        const response = await fetch(
-            `${DBURL}collections/Projects/records?filter=(user_id='${userId}')`,
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
-                },
-            }
-        );
-        const data = await response.json();
-        const sites = (data.items ?? []).map((p: any) => p.site_id);
+        const records = await pb.collection('Projects').getFullList({
+            filter: `user_id = "${userId}"`,
+        });
+        const sites = records.map((p: any) => p.site_id);
         console.log(`[getUserSites] User ID: ${userId}, Allowed:`, sites);
         return sites;
     } catch (err) {
+        console.error('[getUserSites Error]', err);
         return [];
     }
 }
 
 async function getAllRecords(siteId?: string, allowedSites?: string[]): Promise<any[]> {
-    let filterParts = [];
-    if (siteId) filterParts.push(`site_id='${siteId}'`);
-    if (allowedSites) {
-        // Only allow records belonging to the user's sites
-        const siteFilter = allowedSites.map(s => `site_id='${s}'`).join('||');
-        if (siteFilter) filterParts.push(`(${siteFilter})`);
-        else return []; // User has no sites
+    if (!pb.authStore.isValid) {
+        console.log('[Auth] pb.authStore invalid, re-authenticating...');
+        await initAdminAuth();
     }
 
-    const filterQuery = filterParts.length > 0 ? `?filter=(${filterParts.join('&&')})` : '';
-    const response = await fetch(
-        `${DBURL}collections/IP_Details/records${filterQuery}`,
-        {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
-            },
-        }
-    );
-    const data = await response.json();
-    return data.items ?? [];
+    let filterParts = [];
+    if (siteId) filterParts.push(`site_id="${siteId}"`);
+    if (allowedSites) {
+        if (allowedSites.length === 0) return []; // User has no sites registered
+        const siteFilter = allowedSites.map(s => `site_id="${s}"`).join(' || ');
+        filterParts.push(`(${siteFilter})`);
+    }
+
+    const filter = filterParts.length > 0 ? filterParts.join(' && ') : '';
+    try {
+        return await pb.collection('IP_Details').getFullList({ filter });
+    } catch (err) {
+        console.error('[getAllRecords Error]', err);
+        return [];
+    }
 }
 
 function buildStats(data: any[]) {
@@ -191,36 +233,22 @@ app.post('/v1/track', async (req: Request, res: Response) => {
         }
 
         // Check if this IP has already been tracked for this site
-        const filter = `?filter=(ip='${ipDetails.ip}'%26%26site_id='${site_id}')`;
-        const checkResponse = await fetch(
-            `${process.env.DBURL}collections/IP_Details/records${filter}`,
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
-                },
+        let record: any = null;
+        try {
+            record = await pb.collection('IP_Details').getFirstListItem(`ip='${ipDetails.ip}' && site_id='${site_id}'`);
+        } catch (err: any) {
+            // 404 means no record found, which is fine
+            if (err.status !== 404) {
+                console.error('[Database Lookup Error]', err);
             }
-        );
-        const existing = await checkResponse.json();
-        const record = existing.items?.[0];
+        }
 
         if (record) {
             // Returning visitor — bump the visit count
-            console.log(`[Database] Sending PATCH record to: ${DBURL}collections/IP_Details/records/${record.id}`);
-            const updateRes = await fetch(
-                `${DBURL}collections/IP_Details/records/${record.id}`,
-                {
-                    method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
-                    },
-                    body: JSON.stringify({ visit_count: (record.visit_count || 1) + 1 }),
-                }
-            );
-            if (!updateRes.ok) {
-                console.error('[Database PATCH Error]', await updateRes.text());
-            }
+            console.log(`[Database] Updating record: ${record.id}`);
+            await pb.collection('IP_Details').update(record.id, { 
+                visit_count: (record.visit_count || 1) + 1 
+            });
         } else {
             // New visitor — create the record
             const data = {
@@ -242,19 +270,8 @@ app.post('/v1/track', async (req: Request, res: Response) => {
                 visit_count: 1
             };
 
-            const targetUrl = `${DBURL}collections/IP_Details/records`;
-            console.log(`[Database] Sending POST record to: ${targetUrl}`);
-            const createRes = await fetch(targetUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`,
-                },
-                body: JSON.stringify(data),
-            });
-            if (!createRes.ok) {
-                console.error('[Database POST Error]', await createRes.text());
-            }
+            console.log(`[Database] Creating new record for site: ${site_id}`);
+            await pb.collection('IP_Details').create(data);
         }
 
         res.status(200).json({ success: true });
@@ -270,16 +287,10 @@ app.post('/v1/track', async (req: Request, res: Response) => {
  */
 app.post('/v1/auth/signup', async (req: Request, res: Response) => {
     try {
-        const response = await fetch(`${DBURL}collections/users/records`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(req.body)
-        });
-        const data = await response.json();
-        if (!response.ok) return res.status(response.status).json(data);
+        const data = await pb.collection('users').create(req.body);
         res.status(201).json(data);
-    } catch (err) {
-        res.status(500).json({ error: 'Auth service down' });
+    } catch (err: any) {
+        res.status(err.status || 500).json(err.data || { error: 'Auth service down' });
     }
 });
 
@@ -289,26 +300,15 @@ app.post('/v1/auth/signup', async (req: Request, res: Response) => {
  */
 app.post('/v1/auth/login', async (req: Request, res: Response) => {
     try {
-        const response = await fetch(`${DBURL}collections/users/auth-with-password`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(req.body)
-        });
-        const data = await response.json();
-        if (!response.ok) return res.status(response.status).json(data);
-
-        // data contains { token, record }
-        res.status(200).json(data);
-    } catch (err) {
-        res.status(500).json({ error: 'Auth service down' });
+        const { identity, password } = req.body;
+        const authData = await pb.collection('users').authWithPassword(identity, password);
+        // authData contains { token, record }
+        res.status(200).json(authData);
+    } catch (err: any) {
+        res.status(err.status || 500).json(err.data || { error: 'Auth service down' });
     }
 });
 
-/**
- * POST /v1/projects
- * Body: { site_id }
- * Registers a new site/project for the authenticated user.
- */
 app.post('/v1/projects', requireAuth, async (req: Request, res: Response) => {
     try {
         const { site_id } = req.body;
@@ -316,23 +316,15 @@ app.post('/v1/projects', requireAuth, async (req: Request, res: Response) => {
 
         if (!site_id) return res.status(400).json({ error: 'site_id required' });
 
-        const response = await fetch(`${DBURL}collections/Projects/records`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.POCKETBASE_TOKEN}`
-            },
-            body: JSON.stringify({ user_id: user.id, site_id })
+        const data = await pb.collection('Projects').create({
+            user_id: user.id,
+            site_id
         });
 
-        const data = await response.json();
-        if (!response.ok) {
-            console.error('[PocketBase Error]', JSON.stringify(data, null, 2));
-            return res.status(response.status).json(data);
-        }
         res.status(201).json(data);
-    } catch (err) {
-        res.status(500).json({ error: 'Internal server error' });
+    } catch (err: any) {
+        console.error('[PocketBase Error]', JSON.stringify(err.data, null, 2));
+        res.status(err.status || 500).json(err.data || { error: 'Internal server error' });
     }
 });
 
@@ -344,6 +336,7 @@ app.get('/v1/records', requireAuth, async (req: Request, res: Response) => {
 
         // Get allowed sites for this user
         const allowedSites = await getUserSites(user.id);
+        console.log("allowedSites", allowedSites);
         const records = await getAllRecords(siteId, allowedSites);
 
         res.status(200).json(records);

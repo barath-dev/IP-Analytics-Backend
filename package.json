@@ -2,10 +2,10 @@
   "name": "server",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/app.ts",
   "scripts": {
     "start": "npx tsc && node build/app.js",
-    "dev": "ts-node-dev --respawn --transpile-only app.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -27,6 +27,8 @@
     "express": "4.17.1",
     "fs": "0.0.1-security",
     "http": "0.0.1-security",
-    "https": "^1.0.0"
+    "https": "^1.0.0",
+    "isbot-fast": "^1.2.0",
+    "pocketbase": "^0.26.8"
   }
 }
