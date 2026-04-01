@@ -42,8 +42,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
       pocketbase:
-        specifier: ^0.26.8
-        version: 0.26.8
+        specifier: ^0.21.3
+        version: 0.21.3
     devDependencies:
       '@types/body-parser':
         specifier: ^1.19.6
@@ -517,8 +517,8 @@ packages:
     resolution: {integrity: sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA==}
     engines: {node: '>=8.6'}
 
-  pocketbase@0.26.8:
-    resolution: {integrity: sha512-aQ/ewvS7ncvAE8wxoW10iAZu6ElgbeFpBhKPnCfvRovNzm2gW8u/sQNPGN6vNgVEagz44kK//C61oKjfa+7Low==}
+  pocketbase@0.21.3:
+    resolution: {integrity: sha512-bsQRZ1mj4dhPJ4P5iSrDqWQtBX2NtuBkf6IOZwTv27zZOw6zrISgo963i5JD/99qKKD5aMSMDPGk1BE9ZyI7Cg==}
 
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
@@ -1169,7 +1169,7 @@ snapshots:
 
   picomatch@2.3.2: {}
 
-  pocketbase@0.26.8: {}
+  pocketbase@0.21.3: {}
 
   proxy-addr@2.0.7:
     dependencies:

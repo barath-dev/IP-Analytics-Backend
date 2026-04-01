@@ -29,6 +29,6 @@
     "http": "0.0.1-security",
     "https": "^1.0.0",
     "isbot-fast": "^1.2.0",
-    "pocketbase": "^0.26.8"
+    "pocketbase": "^0.21.3"
   }
 }
