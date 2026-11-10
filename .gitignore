@@ -3,3 +3,10 @@ build/
 
 # Ignore node modules folder
 node_modules/.DS_Store
+
+# Secrets: never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
